@@ -1,0 +1,728 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import sqlite3
+import winsound             # For sound on Windows (adjust for other OSes)
+import requests             # For weather API calls (ensure you have the requests library)
+import random               # For random fact selection and game shuffling
+import time, math
+from PIL import Image, ImageTk  # For fractal generation
+
+# -------------------------------
+# Helper Functions & Database Setup
+# -------------------------------
+
+def play_sound():
+    """Play a short beep sound as feedback."""
+    try:
+        winsound.Beep(1000, 100)  # 1000 Hz for 100 ms
+    except Exception as e:
+        print("Sound error:", e)
+
+def init_db():
+    """Initialize SQLite database for user management and fact storage."""
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT)")
+    # Create facts table if needed
+    cursor.execute("CREATE TABLE IF NOT EXISTS facts (id INTEGER PRIMARY KEY, fact TEXT)")
+    cursor.execute("SELECT COUNT(*) FROM facts")
+    if cursor.fetchone()[0] == 0:
+        sample_facts = [
+            "The mile comes from the Latin 'mille passus', meaning 1000 paces.",
+            "Fahrenheit was proposed in the early 18th century.",
+            "The metric system was introduced after the French Revolution.",
+            "In the U.K., fuel economy is rated as miles per gallon (mpg), but calculated differently.",
+            "Coffee was originally chewed rather than sipped."
+        ]
+        for fact in sample_facts:
+            cursor.execute("INSERT INTO facts (fact) VALUES (?)", (fact,))
+        conn.commit()
+    conn.commit()
+    conn.close()
+
+# -------------------------------
+# Login / Registration Window Class
+# -------------------------------
+
+class LoginApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Login System")
+        self.geometry("400x400")
+        self.configure(bg="#1e1e1e")
+        self.setup_ui()
+
+    def setup_ui(self):
+        self.lbl_title = tk.Label(self, text="Welcome! Please Login", font=("Helvetica", 20),
+                                  bg="#1e1e1e", fg="white")
+        self.lbl_title.pack(pady=20)
+        self.lbl_username = tk.Label(self, text="Username:", font=("Helvetica", 12),
+                                     bg="#1e1e1e", fg="white")
+        self.lbl_username.pack(pady=5)
+        self.entry_username = tk.Entry(self, font=("Helvetica", 12))
+        self.entry_username.pack(pady=5)
+        self.lbl_password = tk.Label(self, text="Password:", font=("Helvetica", 12),
+                                     bg="#1e1e1e", fg="white")
+        self.lbl_password.pack(pady=5)
+        self.entry_password = tk.Entry(self, font=("Helvetica", 12), show="*")
+        self.entry_password.pack(pady=5)
+        self.btn_login = tk.Button(self, text="Login", font=("Helvetica", 12),
+                                   bg="#4CAF50", fg="white", command=self.login)
+        self.btn_login.pack(pady=10)
+        self.btn_login.bind("<Enter>", lambda event: event.widget.config(bg="#45a049"))
+        self.btn_login.bind("<Leave>", lambda event: event.widget.config(bg="#4CAF50"))
+        self.btn_register = tk.Button(self, text="Register", font=("Helvetica", 12),
+                                      bg="#008CBA", fg="white", command=self.register)
+        self.btn_register.pack(pady=5)
+        self.btn_register.bind("<Enter>", lambda event: event.widget.config(bg="#00a2d1"))
+        self.btn_register.bind("<Leave>", lambda event: event.widget.config(bg="#008CBA"))
+        self.bind("<Return>", lambda event: self.login())
+
+    def login(self):
+        play_sound()
+        username = self.entry_username.get().strip()
+        password = self.entry_password.get().strip()
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            messagebox.showinfo("Login", "Login successful!")
+            self.destroy()
+            MainApp(username)
+        else:
+            messagebox.showerror("Login Failed", "Incorrect username or password.")
+
+    def register(self):
+        play_sound()
+        username = self.entry_username.get().strip()
+        password = self.entry_password.get().strip()
+        if not username or not password:
+            messagebox.showerror("Error", "Fields cannot be empty.")
+            return
+        try:
+            conn = sqlite3.connect("users.db")
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+            conn.commit()
+            conn.close()
+            messagebox.showinfo("Registration", "User registered successfully!")
+        except sqlite3.IntegrityError:
+            messagebox.showerror("Error", "Username already exists.")
+
+# -------------------------------
+# Main Application Window with Multiple Notebook Tabs
+# -------------------------------
+
+class MainApp(tk.Tk):
+    def __init__(self, username):
+        super().__init__()
+        self.username = username
+        self.title("Advanced Multi-Tool App")
+        self.geometry("1000x700")
+        self.configure(bg="#222222")
+        self.init_styles()
+        self.init_notebook()
+        self.bind_global_shortcuts()
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.after(0, self.animate_gradient)  # Start animated gradient background
+        self.mainloop()
+
+    def init_styles(self):
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure('TFrame', background="#222222")
+        style.configure('TLabel', background="#222222", foreground="white")
+        style.configure('TButton', background="#444444", foreground="white")
+
+    def animate_gradient(self):
+        """Smoothly animate the background color using sine functions."""
+        t = time.time()
+        r = int((math.sin(t * 0.5) + 1) * 127)
+        g = int((math.sin(t * 0.7 + 2) + 1) * 127)
+        b = int((math.sin(t * 0.9 + 4) + 1) * 127)
+        self.configure(bg=f'#{r:02x}{g:02x}{b:02x}')
+        self.after(100, self.animate_gradient)
+
+    def init_notebook(self):
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(expand=True, fill='both', padx=10, pady=10)
+        # Existing tabs
+        self.converter_tab = ttk.Frame(self.notebook)
+        self.facts_tab     = ttk.Frame(self.notebook)
+        self.weather_tab   = ttk.Frame(self.notebook)
+        self.games_tab     = ttk.Frame(self.notebook)  # Tic Tac Toe game
+        self.fractal_tab   = ttk.Frame(self.notebook)
+        # New additional tabs:
+        self.snake_tab     = ttk.Frame(self.notebook)
+        self.memory_tab    = ttk.Frame(self.notebook)
+        self.drawing_tab   = ttk.Frame(self.notebook)
+        # Add tabs to the notebook
+        self.notebook.add(self.converter_tab, text="Converter")
+        self.notebook.add(self.facts_tab, text="Random Facts")
+        self.notebook.add(self.weather_tab, text="Weather")
+        self.notebook.add(self.games_tab, text="Tic Tac Toe")
+        self.notebook.add(self.fractal_tab, text="Fractal Explorer")
+        self.notebook.add(self.snake_tab, text="Snake Game")
+        self.notebook.add(self.memory_tab, text="Memory Game")
+        self.notebook.add(self.drawing_tab, text="Drawing Pad")
+        # Setup each tab
+        self.setup_converter_tab()
+        self.setup_facts_tab()
+        self.setup_weather_tab()
+        self.setup_games_tab()
+        self.setup_fractal_tab()
+        self.setup_snake_tab()
+        self.setup_memory_tab()
+        self.setup_drawing_tab()
+
+    def bind_global_shortcuts(self):
+        self.bind("<F1>", lambda event: self.show_help())
+        self.converter_tab.bind_all("<Return>", lambda event: self.convert())
+
+    # -------------------------------
+    # Converter Tab
+    # -------------------------------
+    def setup_converter_tab(self):
+        ttk.Label(self.converter_tab, text=f"Hello, {self.username}! Choose your conversion:",
+                  font=("Helvetica", 16), foreground="#ffffff", background="#4a90e2").pack(pady=10)
+        self.conversion_options = ["Miles to Kilometers", "Pounds to Kilograms",
+                                   "Fahrenheit to Celsius", "USD to GBP", "Inches to Centimeters"]
+        self.conv_type = ttk.Combobox(self.converter_tab, values=self.conversion_options,
+                                      state="readonly", font=("Helvetica", 12))
+        self.conv_type.set(self.conversion_options[0])
+        self.conv_type.pack(pady=5)
+        self.unit_var = tk.StringVar(value="US")
+        unit_frame = ttk.Frame(self.converter_tab)
+        unit_frame.pack(pady=5)
+        ttk.Label(unit_frame, text="Unit Type:", font=("Helvetica", 12)).grid(row=0, column=0, padx=5)
+        ttk.Radiobutton(unit_frame, text="US", variable=self.unit_var, value="US").grid(row=0, column=1, padx=5)
+        ttk.Radiobutton(unit_frame, text="UK", variable=self.unit_var, value="UK").grid(row=0, column=2, padx=5)
+        ttk.Label(self.converter_tab, text="Enter value:", font=("Helvetica", 12)).pack(pady=5)
+        self.input_entry = ttk.Entry(self.converter_tab, font=("Helvetica", 12))
+        self.input_entry.pack(pady=5)
+        ttk.Label(self.converter_tab, text="Decimal Precision:", font=("Helvetica", 12)).pack(pady=5)
+        self.precision_spinbox = tk.Spinbox(self.converter_tab, from_=0, to=10, width=5,
+                                            font=("Helvetica", 12))
+        self.precision_spinbox.pack(pady=5)
+        self.btn_convert = tk.Button(self.converter_tab, text="Convert", font=("Helvetica", 12),
+                                     bg="#008CBA", fg="white", command=self.convert)
+        self.btn_convert.pack(pady=10)
+        self.btn_convert.bind("<Enter>", lambda e: e.widget.config(bg="#00a2d1"))
+        self.btn_convert.bind("<Leave>", lambda e: e.widget.config(bg="#008CBA"))
+        self.result_label = ttk.Label(self.converter_tab, text="Result: ", font=("Helvetica", 12))
+        self.result_label.pack(pady=10)
+
+    def convert(self):
+        try:
+            value = float(self.input_entry.get())
+        except ValueError:
+            messagebox.showerror("Input Error", "Please enter a valid number.")
+            return
+        conv_choice = self.conv_type.get()
+        precision = int(self.precision_spinbox.get())
+        result = None
+        if conv_choice == "Miles to Kilometers":
+            factor = 1.60934 if self.unit_var.get() == "US" else 1.609344
+            result = value * factor
+        elif conv_choice == "Pounds to Kilograms":
+            factor = 0.453592 if self.unit_var.get() == "US" else 0.45359237
+            result = value * factor
+        elif conv_choice == "Fahrenheit to Celsius":
+            result = (value - 32) * 5/9
+        elif conv_choice == "USD to GBP":
+            rate = 0.75
+            result = value * rate
+        elif conv_choice == "Inches to Centimeters":
+            factor = 2.54
+            result = value * factor
+        else:
+            result = "Conversion not available."
+        if isinstance(result, float):
+            result = f"{result:.{precision}f}"
+        self.result_label.config(text=f"Result: {result}")
+        play_sound()
+
+    # -------------------------------
+    # Random Facts Tab
+    # -------------------------------
+    def setup_facts_tab(self):
+        ttk.Label(self.facts_tab, text="Random Facts & Wikipedia-like Insights",
+                  font=("Helvetica", 16), foreground="#ffcf33", background="#111111").pack(pady=10)
+        self.facts_text = tk.Text(self.facts_tab, wrap="word", font=("Helvetica", 12), height=10,
+                                   bg="#222222", fg="#ffffff")
+        self.facts_text.pack(padx=10, pady=10, fill="both", expand=True)
+        btn_fact = tk.Button(self.facts_tab, text="Get New Fact", font=("Helvetica", 12),
+                             bg="#FF5733", fg="white", command=self.get_random_fact)
+        btn_fact.pack(pady=5)
+        btn_fact.bind("<Enter>", lambda e: e.widget.config(bg="#ff6f50"))
+        btn_fact.bind("<Leave>", lambda e: e.widget.config(bg="#FF5733"))
+        self.get_random_fact()
+
+    def get_random_fact(self):
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT fact FROM facts ORDER BY RANDOM() LIMIT 1")
+        fact = cursor.fetchone()
+        conn.close()
+        self.facts_text.config(state="normal")
+        self.facts_text.delete("1.0", tk.END)
+        if fact:
+            self.facts_text.insert(tk.END, fact[0])
+        else:
+            self.facts_text.insert(tk.END, "No fact available.")
+        self.facts_text.config(state="disabled")
+        play_sound()
+
+    # -------------------------------
+    # Weather Tab
+    # -------------------------------
+    def setup_weather_tab(self):
+        ttk.Label(self.weather_tab, text="Current Temperature in Your City", font=("Helvetica", 16),
+                  foreground="#66ccff", background="#000033").pack(pady=10)
+        frm = ttk.Frame(self.weather_tab)
+        frm.pack(pady=10)
+        ttk.Label(frm, text="City:", font=("Helvetica", 12)).grid(row=0, column=0, sticky="e", padx=5)
+        self.city_entry = ttk.Entry(frm, font=("Helvetica", 12))
+        self.city_entry.grid(row=0, column=1, padx=5)
+        btn_weather = tk.Button(frm, text="Get Temperature", font=("Helvetica", 12),
+                                bg="#ffa500", fg="white", command=self.get_weather)
+        btn_weather.grid(row=0, column=2, padx=5)
+        btn_weather.bind("<Enter>", lambda e: e.widget.config(bg="#ffb733"))
+        btn_weather.bind("<Leave>", lambda e: e.widget.config(bg="#ffa500"))
+        self.weather_result = ttk.Label(self.weather_tab, text="Temperature: ", font=("Helvetica", 12))
+        self.weather_result.pack(pady=10)
+
+    def get_weather(self):
+        city = self.city_entry.get().strip()
+        if not city:
+            messagebox.showerror("Input Error", "Please enter a city name.")
+            return
+        api_key = "YOUR_API_KEY"  # Replace with your OpenWeatherMap API key.
+        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
+        try:
+            response = requests.get(url)
+            data = response.json()
+            if data.get("cod") != 200:
+                messagebox.showerror("Error", data.get("message", "City not found"))
+                return
+            temp = data["main"]["temp"]
+            self.weather_result.config(text=f"Temperature in {city}: {temp} °C")
+            play_sound()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to get weather data: {e}")
+
+    # -------------------------------
+    # Tic Tac Toe (Games) Tab
+    # -------------------------------
+    def setup_games_tab(self):
+        ttk.Label(self.games_tab, text="Tic Tac Toe", font=("Helvetica", 16),
+                  foreground="#00cc00", background="#222222").pack(pady=10)
+        self.tictactoe = TicTacToeFrame(self.games_tab)
+        self.tictactoe.pack(pady=10)
+
+    # -------------------------------
+    # Fractal Explorer Tab
+    # -------------------------------
+    def setup_fractal_tab(self):
+        ttk.Label(self.fractal_tab, text="Mandelbrot Set Explorer", font=("Helvetica", 16),
+                  foreground="#ffeeaa", background="#222222").pack(pady=10)
+        control_frame = ttk.Frame(self.fractal_tab)
+        control_frame.pack(pady=5)
+        ttk.Label(control_frame, text="Iteration Depth:", font=("Helvetica", 12)).pack(side="left", padx=5)
+        self.iterations_scale = tk.Scale(control_frame, from_=50, to=500, orient=tk.HORIZONTAL,
+                                         bg="#222222", fg="white", troughcolor="#444444")
+        self.iterations_scale.set(100)
+        self.iterations_scale.pack(side="left", padx=5)
+        btn_generate = tk.Button(control_frame, text="Generate Fractal", font=("Helvetica", 12),
+                                 bg="#ff9900", fg="white", command=self.draw_fractal)
+        btn_generate.pack(side="left", padx=10)
+        self.fractal_canvas = tk.Canvas(self.fractal_tab, width=400, height=400, bg="black")
+        self.fractal_canvas.pack(pady=10)
+        self.draw_fractal()
+
+    def draw_fractal(self):
+        width, height = 400, 400
+        max_iter = self.iterations_scale.get()
+        image = Image.new("RGB", (width, height))
+        pixels = image.load()
+        for x in range(width):
+            for y in range(height):
+                # Map pixel to complex plane: x in [-2.5, 1], y in [-1, 1]
+                a = x * (3.5 / width) - 2.5
+                b = y * (2 / height) - 1
+                c = complex(a, b)
+                z = 0 + 0j
+                i = 0
+                while i < max_iter and abs(z) <= 2:
+                    z = z*z + c
+                    i += 1
+                if i == max_iter:
+                    color = (0, 0, 0)
+                else:
+                    t = i / max_iter
+                    r = int(9*(1-t)*t*t*t * 255)
+                    g = int(15*(1-t)*(1-t)*t*t * 255)
+                    b_val = int(8.5*(1-t)*(1-t)*(1-t)*t * 255)
+                    color = (r, g, b_val)
+                pixels[x, y] = color
+        self.fractal_tk_image = ImageTk.PhotoImage(image)
+        self.fractal_canvas.create_image(0, 0, anchor="nw", image=self.fractal_tk_image)
+        play_sound()
+
+    # -------------------------------
+    # Snake Game Tab
+    # -------------------------------
+    def setup_snake_tab(self):
+        self.snake_game = SnakeGameFrame(self.snake_tab)
+        self.snake_game.pack(expand=True, fill="both")
+
+    # -------------------------------
+    # Memory Game Tab
+    # -------------------------------
+    def setup_memory_tab(self):
+        self.memory_game = MemoryGameFrame(self.memory_tab)
+        self.memory_game.pack(expand=True, fill="both")
+
+    # -------------------------------
+    # Drawing Pad Tab
+    # -------------------------------
+    def setup_drawing_tab(self):
+        self.drawing_pad = DrawingPadFrame(self.drawing_tab)
+        self.drawing_pad.pack(expand=True, fill="both")
+
+    def show_help(self):
+        help_text = ("Keyboard Shortcuts:\n"
+                     "  • F1: Show Help\n"
+                     "  • Enter: Trigger Conversion (in Converter Tab)\n\n"
+                     "Mouse Interaction:\n"
+                     "  • Hover over buttons for animated color changes\n"
+                     "  • Enjoy the dynamic, colorful UI effects!")
+        messagebox.showinfo("Help", help_text)
+
+    def on_closing(self):
+        if messagebox.askokcancel("Quit", "Do you really want to quit?"):
+            self.destroy()
+
+# -------------------------------
+# Tic Tac Toe Game Frame (Existing Games Tab)
+# -------------------------------
+
+class TicTacToeFrame(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.initialize_game()
+
+    def initialize_game(self):
+        self.current_player = "X"
+        self.game_over = False
+        self.board = [["" for _ in range(3)] for _ in range(3)]
+        self.buttons = [[None for _ in range(3)] for _ in range(3)]
+        for i in range(3):
+            for j in range(3):
+                btn = tk.Button(self, text="", font=("Helvetica", 20), width=5, height=2,
+                                command=lambda i=i, j=j: self.on_button_click(i, j), bg="#d9d9d9")
+                btn.grid(row=i, column=j, padx=5, pady=5)
+                btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#bfbfbf"))
+                btn.bind("<Leave>", lambda e, b=btn: b.config(bg="#d9d9d9" if b["text"]=="" else "#90ee90"))
+                self.buttons[i][j] = btn
+        self.reset_btn = tk.Button(self, text="Reset Game", font=("Helvetica", 12),
+                                   bg="#800080", fg="white", command=self.reset_game)
+        self.reset_btn.grid(row=3, column=0, columnspan=3, pady=10)
+
+    def on_button_click(self, i, j):
+        if self.game_over or self.board[i][j] != "":
+            return
+        self.board[i][j] = self.current_player
+        self.buttons[i][j].config(text=self.current_player)
+        play_sound()
+        if self.check_winner():
+            messagebox.showinfo("Game Over", f"Player {self.current_player} wins!")
+            self.game_over = True
+        elif all(self.board[x][y] != "" for x in range(3) for y in range(3)):
+            messagebox.showinfo("Game Over", "It's a Tie!")
+            self.game_over = True
+        else:
+            self.current_player = "O" if self.current_player == "X" else "X"
+
+    def check_winner(self):
+        for i in range(3):
+            if self.board[i][0] == self.board[i][1] == self.board[i][2] != "":
+                return True
+        for j in range(3):
+            if self.board[0][j] == self.board[1][j] == self.board[2][j] != "":
+                return True
+        if self.board[0][0] == self.board[1][1] == self.board[2][2] != "":
+            return True
+        if self.board[0][2] == self.board[1][1] == self.board[2][0] != "":
+            return True
+        return False
+
+    def reset_game(self):
+        self.current_player = "X"
+        self.game_over = False
+        self.board = [["" for _ in range(3)] for _ in range(3)]
+        for i in range(3):
+            for j in range(3):
+                self.buttons[i][j].config(text="", bg="#d9d9d9")
+        play_sound()
+
+# -------------------------------
+# Snake Game Frame (New Tab)
+# -------------------------------
+
+class SnakeGameFrame(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        # Create the game canvas.
+        self.canvas = tk.Canvas(self, width=400, height=400, bg="black")
+        self.canvas.pack()
+        self.canvas.focus_set()  # Ensure the canvas receives key events.
+        self.canvas.bind("<Key>", self.on_key_press)
+        
+        # Initialize game state variables.
+        self.score = 0
+        self.game_over = False
+        self.game_running = False
+        self.snake = []
+        self.direction = "Right"
+        self.food = None
+
+        # Add a start/restart button below the canvas.
+        self.start_button = tk.Button(self, text="Start Game", font=("Helvetica", 12),
+                                      bg="blue", fg="white", command=self.start_game)
+        self.start_button.pack(pady=10)
+    
+    def start_game(self):
+        """Starts or restarts the Snake game."""
+        self.score = 0
+        self.game_over = False
+        self.game_running = True
+        # Initialize the snake.
+        self.snake = [(200, 200), (190, 200), (180, 200)]
+        self.direction = "Right"
+        self.food = self.place_food()
+        # Change button text to allow quick restart.
+        self.start_button.config(text="Restart Game")
+        # Start the game loop.
+        self.update_game()
+    
+    def place_food(self):
+        """Place food on the canvas at a random location within 10-pixel cells."""
+        x = random.randint(0, 39) * 10 + 5  # Using centers of cells on a 400x400 grid.
+        y = random.randint(0, 39) * 10 + 5
+        return (x, y)
+    
+    def update_game(self):
+        """Update game state and schedule the next update."""
+        if not self.game_running:
+            return
+        if self.game_over:
+            self.game_running = False
+            return
+        self.move_snake()
+        self.check_collision()
+        self.redraw()
+        self.after(100, self.update_game)
+    
+    def on_key_press(self, event):
+        """Handle key presses to change the snake's direction.
+           Prevents direct 180° reversals."""
+        opposite = {
+            "Up": "Down", "Down": "Up",
+            "Left": "Right", "Right": "Left"
+        }
+        if event.keysym in ("Up", "Down", "Left", "Right"):
+            if event.keysym != opposite.get(self.direction, ""):
+                self.direction = event.keysym
+    
+    def move_snake(self):
+        """Move the snake by adding a new head and optionally removing the tail."""
+        head = self.snake[0]
+        x, y = head
+        if self.direction == "Up":
+            new_head = (x, y - 10)
+        elif self.direction == "Down":
+            new_head = (x, y + 10)
+        elif self.direction == "Left":
+            new_head = (x - 10, y)
+        elif self.direction == "Right":
+            new_head = (x + 10, y)
+        self.snake = [new_head] + self.snake
+        # If food is eaten, don't remove the tail (thus growing the snake).
+        if abs(new_head[0] - self.food[0]) < 10 and abs(new_head[1] - self.food[1]) < 10:
+            self.score += 1
+            self.food = self.place_food()
+        else:
+            self.snake.pop()  # Remove the tail if no food is eaten.
+    
+    def check_collision(self):
+        """Check for collisions with walls or self."""
+        head = self.snake[0]
+        x, y = head
+        if x < 0 or x >= 400 or y < 0 or y >= 400:
+            self.end_game()
+        if head in self.snake[1:]:
+            self.end_game()
+    
+    def end_game(self):
+        """Ends the game and displays a Game Over message."""
+        self.game_over = True
+        self.canvas.create_text(200, 200, text="Game Over", fill="red", font=("Helvetica", 24))
+    
+    def redraw(self):
+        """Redraw the canvas: food and snake segments."""
+        self.canvas.delete("all")
+        # Draw the food as a yellow circle.
+        self.canvas.create_oval(self.food[0]-5, self.food[1]-5,
+                                self.food[0]+5, self.food[1]+5, fill="yellow")
+        # Draw the snake segments as green rectangles.
+        for segment in self.snake:
+            x, y = segment
+            self.canvas.create_rectangle(x-5, y-5, x+5, y+5, fill="green")
+
+
+    def init_game(self):
+        self.snake = [(200,200), (190,200), (180,200)]
+        self.direction = "Right"
+        self.food = self.place_food()
+        self.game_over = False
+        self.update_game()
+
+    def place_food(self):
+        x = random.randint(0, 39)*10 + 5  # Using 10-pixel cells on a 400x400 canvas
+        y = random.randint(0, 39)*10 + 5
+        return (x, y)
+
+    def update_game(self):
+        if self.game_over:
+            return
+        self.move_snake()
+        self.check_collision()
+        self.redraw()
+        self.after(100, self.update_game)
+
+    def on_key_press(self, event):
+        if event.keysym in ("Up", "Down", "Left", "Right"):
+            self.direction = event.keysym
+
+    def move_snake(self):
+        head = self.snake[0]
+        x, y = head
+        if self.direction == "Up":
+            new_head = (x, y - 10)
+        elif self.direction == "Down":
+            new_head = (x, y + 10)
+        elif self.direction == "Left":
+            new_head = (x - 10, y)
+        elif self.direction == "Right":
+            new_head = (x + 10, y)
+        self.snake = [new_head] + self.snake[:-1]
+        if abs(new_head[0] - self.food[0]) < 10 and abs(new_head[1] - self.food[1]) < 10:
+            self.score += 1
+            self.snake.append(self.snake[-1])
+            self.food = self.place_food()
+
+    def check_collision(self):
+        head = self.snake[0]
+        x, y = head
+        if x < 0 or x >= 400 or y < 0 or y >= 400 or head in self.snake[1:]:
+            self.end_game()
+
+    def end_game(self):
+        self.game_over = True
+        self.canvas.create_text(200, 200, text="Game Over", fill="red", font=("Helvetica", 24))
+
+    def redraw(self):
+        self.canvas.delete("all")
+        self.canvas.create_oval(self.food[0]-5, self.food[1]-5, self.food[0]+5, self.food[1]+5, fill="yellow")
+        for segment in self.snake:
+            x, y = segment
+            self.canvas.create_rectangle(x-5, y-5, x+5, y+5, fill="green")
+
+# -------------------------------
+# Memory Game Frame (New Tab)
+# -------------------------------
+
+class MemoryGameFrame(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setup_game()
+
+    def setup_game(self):
+        self.first_choice = None
+        self.second_choice = None
+        numbers = list(range(1, 9)) * 2
+        random.shuffle(numbers)
+        self.cards = {}
+        self.buttons = {}
+        for i in range(4):
+            for j in range(4):
+                index = i * 4 + j
+                self.cards[(i, j)] = numbers[index]
+                btn = tk.Button(self, text="", width=8, height=4,
+                                font=("Helvetica", 12),
+                                command=lambda i=i, j=j: self.reveal_card(i, j))
+                btn.grid(row=i, column=j, padx=5, pady=5)
+                self.buttons[(i, j)] = btn
+
+    def reveal_card(self, i, j):
+        btn = self.buttons[(i, j)]
+        if btn["text"] != "":
+            return
+        btn.config(text=str(self.cards[(i, j)]))
+        if not self.first_choice:
+            self.first_choice = (i, j)
+        elif not self.second_choice:
+            self.second_choice = (i, j)
+            self.after(500, self.check_match)
+
+    def check_match(self):
+        if self.cards[self.first_choice] == self.cards[self.second_choice]:
+            self.buttons[self.first_choice].config(state="disabled")
+            self.buttons[self.second_choice].config(state="disabled")
+        else:
+            self.buttons[self.first_choice].config(text="")
+            self.buttons[self.second_choice].config(text="")
+        self.first_choice = None
+        self.second_choice = None
+
+# -------------------------------
+# Drawing Pad Frame (New Tab)
+# -------------------------------
+
+class DrawingPadFrame(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setup_pad()
+
+    def setup_pad(self):
+        self.canvas = tk.Canvas(self, width=400, height=400, bg="white")
+        self.canvas.pack(pady=10)
+        self.canvas.bind("<Button-1>", self.set_start)
+        self.canvas.bind("<B1-Motion>", self.draw)
+        self.last_x, self.last_y = None, None
+        clear_btn = tk.Button(self, text="Clear", command=self.clear_canvas,
+                              font=("Helvetica", 12), bg="red", fg="white")
+        clear_btn.pack(pady=5)
+
+    def set_start(self, event):
+        self.last_x, self.last_y = event.x, event.y
+
+    def draw(self, event):
+        if self.last_x is not None and self.last_y is not None:
+            self.canvas.create_line(self.last_x, self.last_y, event.x, event.y, fill="black", width=2)
+        self.last_x, self.last_y = event.x, event.y
+
+    def clear_canvas(self):
+        self.canvas.delete("all")
+
+# -------------------------------
+# Main Execution
+# -------------------------------
+
+if __name__ == "__main__":
+    init_db()
+    app = LoginApp()
+    app.mainloop()
